@@ -1,0 +1,24 @@
+{
+  "name": "stacksense-agent",
+  "version": "1.0.0",
+  "description": "Autonomous research agent that keeps the StackSense tool knowledge base current",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "scan": "node src/scan-now.js",
+    "audit": "node src/audit-now.js"
+  },
+  "dependencies": {
+    "@google/genai": "^2.0.0",
+    "axios": "^1.6.8",
+    "cron-parser": "^5.5.0",
+    "dotenv": "^16.4.5",
+    "express": "^5.2.1",
+    "node-cron": "^3.0.3",
+    "simple-git": "^3.22.0",
+    "socket.io": "^4.8.3",
+    "winston": "^3.12.0"
+  }
+}

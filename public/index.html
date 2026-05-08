@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>StackSense Agent</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="/socket.io/socket.io.js"></script>
+<style>
+:root { 
+  --font-mono: 'JetBrains Mono', monospace; 
+  --primary: #10b981; /* Muted Emerald Green */
+  --primary-dim: rgba(16, 185, 129, 0.15);
+  --border: #1e293b; /* Slate 800 */
+  --text-muted: #64748b; /* Slate 500 */
+  --text-light: #94a3b8; /* Slate 400 */
+  --bg-dark: #020617; /* Slate 950 */
+  --panel-bg: #0f172a; /* Slate 900 */
+  --item-bg: #0b0f19; /* Slightly darker item bg */
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--font-mono);}
+.dash{background:var(--bg-dark);min-height:100vh;padding:0;color:#e2e8f0;position:relative;}
+.dash::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 28px,rgba(16,185,129,0.005) 28px,rgba(16,185,129,0.005) 29px),repeating-linear-gradient(90deg,transparent,transparent 28px,rgba(16,185,129,0.005) 28px,rgba(16,185,129,0.005) 29px);pointer-events:none;z-index:0;}
+.content{position:relative;z-index:1;padding:24px 32px;}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid var(--border);}
+.logo{display:flex;align-items:center;gap:12px;}
+.logo-icon{width:28px;height:28px;border:1.5px solid var(--primary);display:flex;align-items:center;justify-content:center;transform:rotate(45deg); border-radius: 4px;}
+.logo-icon-inner{width:10px;height:10px;background:var(--primary); border-radius: 2px;}
+.logo-text{font-size:12px;font-weight:700;letter-spacing:0.15em;color:var(--primary);}
+.logo-sub{font-size:10px;color:var(--text-muted);letter-spacing:0.1em; margin-top:3px;}
+.topbar-right{display:flex;align-items:center;gap:20px;}
+.live-badge{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--primary);letter-spacing:0.1em;font-weight:700; background:var(--primary-dim); padding: 4px 8px; border-radius: 4px;}
+.live-dot{width:6px;height:6px;background:var(--primary);border-radius:50%;animation:livepulse 2s ease-in-out infinite;}
+@keyframes livepulse{0%,100%{opacity:1;box-shadow:0 0 6px var(--primary);}50%{opacity:0.4;box-shadow:none;}}
+.clock{font-size:12px;color:var(--text-muted);letter-spacing:0.1em;font-weight:700;}
+.metrics-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px;}
+.metric{background:var(--panel-bg);border:1px solid var(--border);padding:16px;border-radius: 8px;position:relative;overflow:hidden;}
+.metric::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--primary),transparent);opacity:0.5;}
+.metric-label{font-size:10px;color:var(--text-muted);letter-spacing:0.1em;margin-bottom:8px;font-weight:600;}
+.metric-val{font-size:24px;font-weight:500;color:var(--primary);line-height:1;}
+.metric-sub{font-size:10px;color:var(--text-muted);margin-top:8px;}
+.metric-delta{font-size:10px;color:var(--primary);margin-top:4px;}
+.main-grid{display:grid;grid-template-columns:1fr 280px;gap:16px;margin-bottom:16px;align-items:start;}
+.panel{background:var(--panel-bg);border:1px solid var(--border);padding:16px;border-radius:8px;position:relative;}
+.panel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.panel-title{font-size:10px;letter-spacing:0.15em;color:var(--text-muted);font-weight:600;}
+.panel-badge{font-size:9px;border:1px solid var(--border);color:var(--primary);padding:3px 8px;letter-spacing:0.1em;border-radius:4px;background:var(--primary-dim);}
+.activity-list{display:flex;flex-direction:column;gap:8px;}
+.activity-item{display:flex;align-items:flex-start;gap:12px;padding:10px;border:1px solid var(--border);background:var(--item-bg);border-radius:6px;}
+.act-time{font-size:10px;color:var(--text-muted);white-space:nowrap;min-width:45px;}
+.act-dot{width:8px;height:8px;border-radius:50%;margin-top:4px;flex-shrink:0;}
+.dot-green{background:var(--primary);box-shadow:0 0 6px var(--primary-dim);}
+.dot-amber{background:#f59e0b;box-shadow:0 0 6px rgba(245,158,11,0.2);}
+.dot-blue{background:#3b82f6;box-shadow:0 0 6px rgba(59,130,246,0.2);}
+.dot-red{background:#ef4444;box-shadow:0 0 6px rgba(239,68,68,0.2);}
+.act-text{font-size:11px;color:var(--text-light);line-height:1.5;}
+.act-text strong{color:#e2e8f0;font-weight:600;}
+.right-col{display:flex;flex-direction:column;gap:16px;height:540px;}
+.next-scan{background:var(--item-bg);border:1px solid var(--border);padding:24px 20px;border-radius:8px;text-align:center;position:relative;overflow:hidden;}
+.next-scan::after{content:'';position:absolute;bottom:0;left:0;right:0;height:3px;background:var(--primary);animation:scanbar 4s linear infinite;opacity:0.5;}
+@keyframes scanbar{0%{transform:scaleX(0);transform-origin:left;}50%{transform:scaleX(1);}100%{transform:scaleX(0);transform-origin:right;}}
+.countdown{font-size:32px;font-weight:500;color:var(--primary);letter-spacing:0.05em;font-variant-numeric:tabular-nums;margin-bottom:4px;}
+.countdown-label{font-size:10px;color:var(--text-muted);letter-spacing:0.15em;}
+.kb-stats{background:var(--panel-bg);border:1px solid var(--border);border-radius:8px;padding:16px;flex:1;min-height:0;display:flex;flex-direction:column;}
+.kb-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dashed var(--border);}
+.kb-row:last-child{border-bottom:none;}
+.kb-cat{font-size:11px;color:var(--text-light);letter-spacing:0.05em;text-transform:uppercase;}
+.kb-count{font-size:12px;color:#e2e8f0;font-weight:500;}
+.kb-bar-wrap{width:70px;height:4px;background:var(--border);border-radius:2px;overflow:hidden;}
+.kb-bar{height:4px;background:var(--primary);}
+.mini-chart{background:var(--panel-bg);border:1px solid var(--border);border-radius:8px;padding:16px;}
+.chart-bars{display:flex;align-items:flex-end;gap:6px;height:60px;margin-top:12px;}
+.bar-wrap{display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;}
+.bar{background:var(--border);width:100%;position:relative;transition:all 0.3s;border-radius:2px;}
+.bar-fill{position:absolute;bottom:0;left:0;right:0;background:var(--primary);border-radius:2px;}
+.bar-label{font-size:9px;color:var(--text-muted);text-align:center;}
+.bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.sources-list{display:flex;flex-direction:column;gap:8px;}
+.source-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--border);background:var(--item-bg);border-radius:6px;}
+.src-left{display:flex;align-items:center;gap:10px;}
+.src-dot{width:6px;height:6px;border-radius:50%;}
+.src-name{font-size:11px;color:var(--text-light);font-weight:500;}
+.src-count{font-size:11px;color:#e2e8f0;}
+.src-status{font-size:9px;color:var(--text-muted);letter-spacing:0.05em;background:rgba(255,255,255,0.05);padding:3px 8px;border-radius:4px;}
+.trigger-btn{width:100%;padding:14px;border:1px solid var(--border);background:var(--primary-dim);border-radius:6px;color:var(--primary);font-family:var(--font-mono);font-size:11px;letter-spacing:0.1em;font-weight:600;cursor:pointer;transition:all 0.2s;margin-top:16px;}
+.trigger-btn:hover{background:var(--primary);color:var(--bg-dark);border-color:var(--primary);}
+.trigger-btn:active{transform:scale(0.98);}
+.trigger-btn:disabled{opacity:0.5;pointer-events:none;border-color:var(--border);color:var(--text-muted);background:transparent;}
+.scan-running{display:none;align-items:center;justify-content:center;gap:10px;padding:14px;border:1px solid var(--primary);border-radius:6px;background:var(--primary-dim);margin-top:16px;font-size:11px;font-weight:600;color:var(--primary);letter-spacing:0.1em;}
+.scan-spinner{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.sys-health{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.health-item{background:var(--item-bg);border:1px solid var(--border);padding:12px;border-radius:6px;}
+.health-label{font-size:10px;color:var(--text-muted);letter-spacing:0.1em;margin-bottom:8px;font-weight:600;}
+.health-val{font-size:12px;color:var(--primary);font-weight:500;}
+.health-bar{height:3px;background:var(--border);margin-top:8px;border-radius:2px;overflow:hidden;}
+.health-bar-fill{height:3px;background:var(--primary);}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+</style>
+</head>
+<body>
+<h2 class="sr-only">StackSense agent dashboard — live system monitor showing scan schedules, knowledge base stats, activity log, and system health</h2>
+
+<div class="dash">
+  <div class="content">
+
+    <!-- topbar -->
+    <div class="topbar">
+      <div class="logo">
+        <div class="logo-icon"><div class="logo-icon-inner"></div></div>
+        <div>
+          <div class="logo-text">STACKSENSE AGENT</div>
+          <div class="logo-sub">AGENTIC LAYER · AUTONOMOUS KB SYSTEM</div>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <div class="live-badge"><div class="live-dot" id="live-dot"></div>LIVE</div>
+        <div class="clock" id="clock">--:--:--</div>
+      </div>
+    </div>
+
+    <!-- metrics -->
+    <div class="metrics-row">
+      <div class="metric">
+        <div class="metric-label">TOOLS IN KB</div>
+        <div class="metric-val" id="toolCount">-</div>
+        <div class="metric-sub" id="catCount">ACROSS 0 CATEGORIES</div>
+        <div class="metric-delta">▲ SYNCHRONIZED</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">SCANS COMPLETED</div>
+        <div class="metric-val" id="scanCount">-</div>
+        <div class="metric-sub">SINCE DEPLOYMENT</div>
+        <div class="metric-delta" id="lastScan">▲ LAST: UNKNOWN</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">DATA AUDITED</div>
+        <div class="metric-val" id="auditCount">-</div>
+        <div class="metric-sub">TOOL REVIEWS TOTAL</div>
+        <div class="metric-delta">▲ THIS SESSION</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">AGENT STATUS</div>
+        <div class="metric-val" style="font-size:16px;margin-top:3px;" id="agentStatus">CONNECTING</div>
+        <div class="metric-sub">ALL SYSTEMS GO</div>
+        <div class="metric-delta" id="uptime">UP 00:00:00</div>
+      </div>
+    </div>
+
+    <!-- main grid -->
+    <div class="main-grid">
+
+      <!-- activity log -->
+      <div class="panel" style="height:540px;display:flex;flex-direction:column;">
+        <div class="panel-header" style="margin-bottom:12px;">
+          <div class="panel-title">ACTIVITY LOG</div>
+          <div class="panel-badge" id="logBadge">LIVE FEED</div>
+        </div>
+        <div class="activity-list" id="activityLog" style="flex:1;overflow-y:auto;padding-right:4px;">
+          <!-- Logs injected by socket -->
+          <div class="activity-item" style="border: none; background: transparent;">
+            <div class="act-text">Connecting to Live Feed...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- right col -->
+      <div class="right-col">
+
+        <!-- next scan countdown -->
+        <div class="next-scan">
+          <div class="panel-title" style="margin-bottom:12px;">NEXT SCAN</div>
+          <div class="countdown" id="countdown">--:--:--</div>
+          <div class="countdown-label">HH : MM : SS</div>
+          <div style="margin-top:12px;font-size:10px;color:var(--text-muted);letter-spacing:0.1em;" id="schedule-text">SCHEDULE: LOADING...</div>
+          
+          <button class="trigger-btn" id="btn-scan" onclick="triggerManualJob('/api/scan')">▶ RUN SCAN NOW</button>
+          <button class="trigger-btn" id="btn-audit" onclick="triggerManualJob('/api/audit')" style="margin-top: 8px;">▶ RUN AUDIT NOW</button>
+          
+          <div class="scan-running" id="scanRunning">
+            <div class="scan-spinner"></div>
+            <span id="scanRunningText">SCANNING...</span>
+          </div>
+        </div>
+
+        <!-- kb breakdown -->
+        <div class="kb-stats">
+          <div class="panel-header" style="margin-bottom:12px;">
+            <div class="panel-title">KB BREAKDOWN</div>
+          </div>
+          <div class="sources-list" id="kb-breakdown" style="flex:1;overflow-y:auto;">
+             <div class="kb-row"><span class="kb-cat" style="color: var(--text-muted);">LOADING DATA...</span></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- bottom grid -->
+    <div class="bottom-grid">
+
+      <!-- search sources -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">SEARCH SOURCES</div>
+          <div class="panel-badge">STATUS</div>
+        </div>
+        <div class="sources-list">
+          <div class="source-row">
+            <div class="src-left"><div class="src-dot" style="background:var(--primary);"></div><div class="src-name">BRAVE SEARCH API</div></div>
+            <div style="display:flex;align-items:center;gap:16px;"><div class="src-count">ACTIVE</div><div class="src-status">OK</div></div>
+          </div>
+          <div class="source-row">
+            <div class="src-left"><div class="src-dot" style="background:var(--primary);"></div><div class="src-name">GOOGLE GEMINI</div></div>
+            <div style="display:flex;align-items:center;gap:16px;"><div class="src-count">ACTIVE</div><div class="src-status">OK</div></div>
+          </div>
+          <div class="source-row">
+            <div class="src-left"><div class="src-dot" style="background:var(--primary);"></div><div class="src-name">GITHUB DATA</div></div>
+            <div style="display:flex;align-items:center;gap:16px;"><div class="src-count">SYNCED</div><div class="src-status">OK</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- system health + scan history bars -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">SYSTEM HEALTH</div>
+        </div>
+        <div class="sys-health">
+          <div class="health-item">
+            <div class="health-label">BRAVE API</div>
+            <div class="health-val" id="health-brave">OK</div>
+            <div class="health-bar"><div class="health-bar-fill" style="width:100%;"></div></div>
+          </div>
+          <div class="health-item">
+            <div class="health-label">GEMINI API</div>
+            <div class="health-val" id="health-gemini">OK</div>
+            <div class="health-bar"><div class="health-bar-fill" style="width:100%;"></div></div>
+          </div>
+          <div class="health-item">
+            <div class="health-label">GITHUB</div>
+            <div class="health-val" id="health-github">OK</div>
+            <div class="health-bar"><div class="health-bar-fill" style="width:100%;"></div></div>
+          </div>
+          <div class="health-item">
+            <div class="health-label">SLACK</div>
+            <div class="health-val" id="health-slack">OK</div>
+            <div class="health-bar"><div class="health-bar-fill" style="width:100%;"></div></div>
+          </div>
+        </div>
+
+        <div style="margin-top:16px;">
+          <div class="panel-title" style="margin-bottom:12px;">SESSIONS TODAY</div>
+          <div class="chart-bars">
+            <div class="bar-wrap"><div class="bar" style="height:60px;"><div class="bar-fill" style="height:33%;"></div></div><div class="bar-label">S1</div></div>
+            <div class="bar-wrap"><div class="bar" style="height:60px;"><div class="bar-fill" style="height:100%;"></div></div><div class="bar-label">S2</div></div>
+            <div class="bar-wrap"><div class="bar" style="height:60px;"><div class="bar-fill" style="height:66%;"></div></div><div class="bar-label">S3</div></div>
+            <div class="bar-wrap"><div class="bar" style="height:60px;"><div class="bar-fill" style="height:33%;"></div></div><div class="bar-label">S4</div></div>
+            <div class="bar-wrap"><div class="bar" style="height:60px;"><div class="bar-fill" style="height:0%;"></div></div><div class="bar-label">S5</div></div>
+            <div class="bar-wrap"><div class="bar" style="height:60px;"><div class="bar-fill" style="height:100%;"></div></div><div class="bar-label">S6</div></div>
+            <div class="bar-wrap"><div class="bar" style="height:60px;"><div class="bar-fill" style="height:33%;"></div></div><div class="bar-label">S7</div></div>
+            <div class="bar-wrap"><div class="bar" style="height:60px;"><div class="bar-fill" style="height:66%;"></div></div><div class="bar-label" style="color: var(--primary);">NOW</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const socket = io();
+let nextScanDate = null;
+let uptimeSeconds = 0;
+
+// Clock updates
+function updateClock(){
+  const now=new Date();
+  const h=String(now.getHours()).padStart(2,'0');
+  const m=String(now.getMinutes()).padStart(2,'0');
+  const s=String(now.getSeconds()).padStart(2,'0');
+  document.getElementById('clock').textContent=`${h}:${m}:${s}`;
+  
+  // Countdown
+  if (nextScanDate) {
+    const diff=Math.max(0, nextScanDate-now);
+    const ch=Math.floor(diff/3600000);
+    const cm=Math.floor((diff%3600000)/60000);
+    const cs=Math.floor((diff%60000)/1000);
+    document.getElementById('countdown').textContent=`${String(ch).padStart(2,'0')}:${String(cm).padStart(2,'0')}:${String(cs).padStart(2,'0')}`;
+  }
+  
+  // Uptime
+  uptimeSeconds++;
+  const uh = Math.floor(uptimeSeconds / 3600).toString().padStart(2, '0');
+  const um = Math.floor((uptimeSeconds % 3600) / 60).toString().padStart(2, '0');
+  const us = Math.floor(uptimeSeconds % 60).toString().padStart(2, '0');
+  document.getElementById('uptime').textContent=`UP ${uh}H ${um}M ${us}S`;
+}
+setInterval(updateClock,1000);
+
+// Log formatting
+function formatLogMsg(raw) {
+  const match = raw.match(/\[(.*?)\] (INFO |ERROR|WARN )\s*(.*)/);
+  if (match) {
+    let [_, time, level, msg] = match;
+    time = time.split(' ')[1]; 
+    level = level.trim();
+    let dotClass = 'dot-blue';
+    if (level === 'ERROR') dotClass = 'dot-red';
+    if (level === 'WARN') dotClass = 'dot-amber';
+    if (level === 'INFO') dotClass = 'dot-green';
+
+    msg = msg.replace(/(SCAN COMPLETE|PRICING AUDIT|DATA AUDIT|WEB SEARCH|GITHUB COMMIT|SKIPPED)/, '<strong>$1</strong>');
+
+    return `
+      <div class="activity-item">
+        <div class="act-time">${time.slice(0,5)}</div>
+        <div class="act-dot ${dotClass}"></div>
+        <div class="act-text"><strong>${level}</strong> — ${msg}</div>
+      </div>
+    `;
+  }
+  return `
+    <div class="activity-item">
+      <div class="act-time">--:--</div>
+      <div class="act-dot dot-green"></div>
+      <div class="act-text">${raw}</div>
+    </div>
+  `;
+}
+
+function appendLog(raw) {
+  if (!raw.trim()) return;
+  const logContainer = document.getElementById('activityLog');
+  if (logContainer.children.length === 1 && logContainer.children[0].innerText.includes('Connecting')) {
+    logContainer.innerHTML = '';
+  }
+  
+  const temp = document.createElement('div');
+  temp.innerHTML = formatLogMsg(raw);
+  const el = temp.firstElementChild;
+  
+  logContainer.insertBefore(el, logContainer.firstChild);
+  if (logContainer.children.length > 20) {
+    logContainer.removeChild(logContainer.lastChild);
+  }
+}
+
+// State updates
+function updateState(state) {
+  const statusEl = document.getElementById('agentStatus');
+  const runningUi = document.getElementById('scanRunning');
+  const scanBtn = document.getElementById('btn-scan');
+  const auditBtn = document.getElementById('btn-audit');
+  const liveDot = document.getElementById('live-dot');
+  
+  statusEl.textContent = state.status;
+  
+  if (state.status !== 'ONLINE') {
+    scanBtn.style.display = 'none';
+    auditBtn.style.display = 'none';
+    runningUi.style.display = 'flex';
+    document.getElementById('scanRunningText').textContent = state.status;
+    document.getElementById('logBadge').textContent = state.status;
+    liveDot.style.animation = 'livepulse 0.5s ease-in-out infinite';
+  } else {
+    scanBtn.style.display = 'block';
+    auditBtn.style.display = 'block';
+    runningUi.style.display = 'none';
+    document.getElementById('logBadge').textContent = 'LIVE FEED';
+    liveDot.style.animation = 'livepulse 2s ease-in-out infinite';
+  }
+
+  document.getElementById('toolCount').textContent = state.totalTools;
+  document.getElementById('scanCount').textContent = state.scansCompleted;
+  document.getElementById('auditCount').textContent = state.auditsCompleted;
+  
+  if (state.lastRun) {
+    const lr = new Date(state.lastRun);
+    document.getElementById('lastScan').textContent = `▲ LAST: ${String(lr.getHours()).padStart(2,'0')}:${String(lr.getMinutes()).padStart(2,'0')}`;
+  }
+
+  if (state.nextScan) {
+    nextScanDate = new Date(state.nextScan);
+  }
+  if (state.scanStr) {
+    document.getElementById('schedule-text').textContent = 'SCHEDULE: ' + state.scanStr + ' (PKT)';
+  }
+
+  if (state.systemHealth) {
+    const updateHealthUI = (id, val) => {
+      const el = document.getElementById(id);
+      if(el) {
+        el.textContent = val;
+        el.style.color = val === 'OK' ? 'var(--primary)' : 'var(--text-muted)';
+        el.nextElementSibling.firstElementChild.style.background = val === 'OK' ? 'var(--primary)' : 'var(--border)';
+        el.nextElementSibling.firstElementChild.style.width = val === 'OK' ? '100%' : '20%';
+      }
+    };
+    updateHealthUI('health-brave', state.systemHealth.brave);
+    updateHealthUI('health-gemini', state.systemHealth.gemini);
+    updateHealthUI('health-github', state.systemHealth.github);
+    updateHealthUI('health-slack', state.systemHealth.slack);
+  }
+
+  if (state.uptime !== undefined) {
+    uptimeSeconds = Math.floor(state.uptime);
+  }
+
+  if (state.kbBreakdown && Object.keys(state.kbBreakdown).length > 0) {
+    let html = '';
+    let total = state.totalTools || 1;
+    let cats = Object.keys(state.kbBreakdown).length;
+    document.getElementById('catCount').textContent = `ACROSS ${cats} CATEGORIES`;
+
+    const sorted = Object.entries(state.kbBreakdown).sort((a,b) => b[1] - a[1]);
+    
+    sorted.forEach(([cat, count]) => {
+      let pct = (count / total) * 100;
+      html += `
+        <div class="kb-row">
+          <span class="kb-cat">${cat}</span>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div class="kb-bar-wrap"><div class="kb-bar" style="width:${pct}%;"></div></div>
+            <span class="kb-count">${count}</span>
+          </div>
+        </div>
+      `;
+    });
+    document.getElementById('kb-breakdown').innerHTML = html;
+  }
+}
+
+// Setup
+fetch('/api/logs').then(r => r.json()).then(d => {
+  if (d.logs) {
+    document.getElementById('activityLog').innerHTML = '';
+    d.logs.reverse().forEach(appendLog);
+  }
+});
+fetch('/api/status').then(r => r.json()).then(updateState);
+
+socket.on('log', appendLog);
+socket.on('state_update', updateState);
+
+async function triggerManualJob(endpoint) {
+  try {
+    await fetch(endpoint, { method: 'POST' });
+  } catch (e) {
+    console.error(e);
+  }
+}
+</script>
+</body>
+</html>
