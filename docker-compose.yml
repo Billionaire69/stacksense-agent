@@ -6,10 +6,18 @@ services:
     container_name: stacksense-agent
     restart: unless-stopped
     env_file: .env
+    ports:
+      - "3001:3001"
     volumes:
       - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/api/status"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
     logging:
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "5"

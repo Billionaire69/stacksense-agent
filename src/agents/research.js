@@ -43,7 +43,7 @@ async function researchNewTools(existingTools, maxTools = 3) {
 
   // Format search results for Gemini
   const resultsText = searchResults
-    .slice(0, 40) // cap to avoid token overflow
+    .slice(0, 80) // cap to avoid token overflow
     .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.description || ''}\n`)
     .join('\n')
 

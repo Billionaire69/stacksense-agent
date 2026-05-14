@@ -13,13 +13,26 @@ const headers = {
   'X-GitHub-Api-Version': '2022-11-28',
 }
 
-// Read current tools.json from GitHub
-async function readToolsFromGitHub() {
+// In-memory cache — stops 30 second polling
+let cache = { tools: null, sha: null, timestamp: null }
+const CACHE_TTL = 60 * 60 * 1000 // 1 hour
+
+async function readToolsFromGitHub(force = false) {
+  const now = Date.now()
+  const cacheValid = cache.tools && cache.timestamp && (now - cache.timestamp) < CACHE_TTL
+
+  if (!force && cacheValid) {
+    return { tools: cache.tools, sha: cache.sha }
+  }
+
   try {
     const url = `${BASE}/repos/${OWNER}/${REPO}/contents/${FILE_PATH}?ref=${BRANCH}`
     const res = await axios.get(url, { headers })
     const content = Buffer.from(res.data.content, 'base64').toString('utf8')
     const tools = JSON.parse(content)
+
+    // Update cache
+    cache = { tools, sha: res.data.sha, timestamp: Date.now() }
     logger.info(`Read ${tools.length} tools from GitHub`)
     return { tools, sha: res.data.sha }
   } catch (err) {
@@ -28,19 +41,25 @@ async function readToolsFromGitHub() {
   }
 }
 
-// Write updated tools.json back to GitHub
 async function writeToolsToGitHub(tools, sha, commitMessage) {
   try {
+    // Always fetch fresh SHA right before writing
+    // prevents 409 conflict on concurrent scans
+    const fresh = await readToolsFromGitHub(true) // force=true bypasses cache
+    const freshSha = fresh.sha
+
     const content = Buffer.from(JSON.stringify(tools, null, 2)).toString('base64')
     const url = `${BASE}/repos/${OWNER}/${REPO}/contents/${FILE_PATH}`
 
     await axios.put(url, {
       message: commitMessage,
       content,
-      sha,
+      sha: freshSha,
       branch: BRANCH,
     }, { headers })
 
+    // Invalidate cache after write
+    cache = { tools, sha: null, timestamp: Date.now() }
     logger.info(`Committed to GitHub: ${commitMessage}`)
     return true
   } catch (err) {
@@ -49,11 +68,8 @@ async function writeToolsToGitHub(tools, sha, commitMessage) {
   }
 }
 
-// Get latest commit SHA for the branch
-async function getLatestCommit() {
-  const url = `${BASE}/repos/${OWNER}/${REPO}/commits/${BRANCH}`
-  const res = await axios.get(url, { headers })
-  return res.data.sha
+function invalidateCache() {
+  cache = { tools: null, sha: null, timestamp: null }
 }
 
-module.exports = { readToolsFromGitHub, writeToolsToGitHub, getLatestCommit }
+module.exports = { readToolsFromGitHub, writeToolsToGitHub, invalidateCache }

@@ -9,6 +9,78 @@ const { runScan } = require('./agents/scanner')
 const { readToolsFromGitHub, writeToolsToGitHub } = require('./utils/github')
 const { auditToolData } = require('./agents/audit')
 
+// ── Last Scan Summary Parser ───────────────────────────────────────────────
+function parseScanSummary() {
+  const logPath = path.join(__dirname, '../logs/agent.log')
+  const errorPath = path.join(__dirname, '../logs/error.log')
+  const summary = {
+    lastScanDate: null,
+    added: 0,
+    updated: 0,
+    total: 0,
+    commitMsg: null,
+    lastAuditDate: null,
+    auditUpdated: [],
+    recentErrors: []
+  }
+
+  try {
+    if (fs.existsSync(logPath)) {
+      const lines = fs.readFileSync(logPath, 'utf8').trim().split('\n')
+
+      // Walk backwards to find the most recent scan result line
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i]
+        // Added/Updated/Total summary
+        const scanMatch = line.match(/Added: (\d+) \| Updated: (\d+) \| Total: (\d+)/)
+        if (scanMatch && !summary.lastScanDate) {
+          summary.added = parseInt(scanMatch[1])
+          summary.updated = parseInt(scanMatch[2])
+          summary.total = parseInt(scanMatch[3])
+          // Extract date from same line
+          const dateMatch = line.match(/\[(.*?)\]/)
+          if (dateMatch) summary.lastScanDate = dateMatch[1]
+        }
+
+        // Most recent commit message
+        const commitMatch = line.match(/Committed to GitHub: (.+)/)
+        if (commitMatch && !summary.commitMsg) {
+          summary.commitMsg = commitMatch[1].trim()
+        }
+
+        // Most recent audit completion line
+        const auditMatch = line.match(/Data audit complete\. Updated: (\d+) tools/)
+        if (auditMatch && !summary.lastAuditDate) {
+          const dateMatch = line.match(/\[(.*?)\]/)
+          if (dateMatch) summary.lastAuditDate = dateMatch[1]
+        }
+
+        // Collect audit-updated tool names from most recent audit block
+        const auditUpdateMatch = line.match(/Data updated for: ([^{]+)/)
+        if (auditUpdateMatch && summary.lastAuditDate && summary.auditUpdated.length < 10) {
+          summary.auditUpdated.unshift(auditUpdateMatch[1].trim())
+        }
+
+        // Stop collecting audit items once we've gone past the scan we care about
+        if (summary.lastScanDate && summary.commitMsg && summary.lastAuditDate && summary.total > 0) break
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  // Recent errors (last 5 from error.log)
+  try {
+    if (fs.existsSync(errorPath)) {
+      const errLines = fs.readFileSync(errorPath, 'utf8').trim().split('\n').filter(Boolean)
+      summary.recentErrors = errLines.slice(-5).map(l => {
+        const m = l.match(/\[(.*?)\] ERROR (.+)/)
+        return m ? { time: m[1].split(' ')[1], msg: m[2].split('{')[0].trim() } : { time: '', msg: l }
+      })
+    }
+  } catch (e) { /* ignore */ }
+
+  return summary
+}
+
 const app = express()
 const server = http.createServer(app)
 const io = new Server(server)
@@ -66,14 +138,23 @@ logger.logEmitter.on('log', (msg) => {
   io.emit('log', msg)
 })
 
-// Endpoint to fetch full state on load
-app.get('/api/status', async (req, res) => {
-  // Update total tools count asynchronously if possible
+// Read once on startup
+async function initStats() {
   try {
     const { tools } = await readToolsFromGitHub()
     agentState.totalTools = tools.length
     agentState.kbBreakdown = computeKBBreakdown(tools)
-  } catch (e) {}
+    logger.info(`Dashboard initialized — ${tools.length} tools`)
+  } catch (err) {
+    logger.error('Failed to init dashboard stats', { error: err.message })
+  }
+}
+
+// Call at startup
+initStats()
+
+// Endpoint to fetch full state on load
+app.get('/api/status', async (req, res) => {
 
   const systemHealth = {
     brave: process.env.BRAVE_API_KEY ? 'OK' : 'MISSING',
@@ -86,7 +167,8 @@ app.get('/api/status', async (req, res) => {
     ...agentState,
     ...getNextRuns(),
     uptime: process.uptime(),
-    systemHealth
+    systemHealth,
+    lastScanSummary: parseScanSummary()
   })
 })
 

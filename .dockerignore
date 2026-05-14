@@ -1,0 +1,8 @@
+node_modules
+logs
+.env
+.git
+.gitignore
+*.md
+scratch_*.js
+{src

@@ -1,19 +1,25 @@
 FROM node:20-alpine
 
+# Set working directory
 WORKDIR /app
 
-# Install dependencies
-COPY package.json ./
-RUN npm install --production
+# Install dependencies first (cached layer)
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
-# Copy source
+# Copy source code and dashboard
 COPY src/ ./src/
+COPY public/ ./public/
 
-# Create logs directory
-RUN mkdir -p logs
+# Create persistent logs directory
+RUN mkdir -p /app/logs
 
-# Health check
-HEALTHCHECK --interval=60s --timeout=10s --start-period=5s --retries=3 \
-  CMD node -e "console.log('healthy')" || exit 1
+# Expose dashboard port
+EXPOSE 3001
 
+# Real HTTP health check against the dashboard
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD wget -qO- http://localhost:3001/api/status || exit 1
+
+# Run the agent
 CMD ["node", "src/index.js"]

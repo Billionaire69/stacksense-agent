@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>StackSense Agent</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23020617'/%3E%3Crect x='8' y='8' width='16' height='16' rx='2' fill='none' stroke='%2310b981' stroke-width='1.5' transform='rotate(45 16 16)'/%3E%3Crect x='12' y='12' width='8' height='8' rx='1.5' fill='%2310b981' transform='rotate(45 16 16)'/%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="/socket.io/socket.io.js"></script>
 <style>
@@ -74,7 +75,7 @@ body{font-family:var(--font-mono);}
 .bar{background:var(--border);width:100%;position:relative;transition:all 0.3s;border-radius:2px;}
 .bar-fill{position:absolute;bottom:0;left:0;right:0;background:var(--primary);border-radius:2px;}
 .bar-label{font-size:9px;color:var(--text-muted);text-align:center;}
-.bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.bottom-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;}
 .sources-list{display:flex;flex-direction:column;gap:8px;}
 .source-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid var(--border);background:var(--item-bg);border-radius:6px;}
 .src-left{display:flex;align-items:center;gap:10px;}
@@ -268,6 +269,53 @@ body{font-family:var(--font-mono);}
         </div>
       </div>
 
+      <!-- Last Scan Summary -->
+      <div class="panel" id="summary-panel">
+        <div class="panel-header">
+          <div class="panel-title">LAST SCAN SUMMARY</div>
+          <div class="panel-badge" id="summary-badge">LOADING</div>
+        </div>
+
+        <!-- Counts row -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
+          <div style="background:var(--item-bg);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center;">
+            <div style="font-size:9px;color:var(--text-muted);letter-spacing:0.1em;margin-bottom:4px;">ADDED</div>
+            <div style="font-size:20px;font-weight:500;color:var(--primary);" id="sum-added">—</div>
+          </div>
+          <div style="background:var(--item-bg);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center;">
+            <div style="font-size:9px;color:var(--text-muted);letter-spacing:0.1em;margin-bottom:4px;">UPDATED</div>
+            <div style="font-size:20px;font-weight:500;color:#3b82f6;" id="sum-updated">—</div>
+          </div>
+          <div style="background:var(--item-bg);border:1px solid var(--border);border-radius:6px;padding:10px;text-align:center;">
+            <div style="font-size:9px;color:var(--text-muted);letter-spacing:0.1em;margin-bottom:4px;">TOTAL KB</div>
+            <div style="font-size:20px;font-weight:500;color:#e2e8f0;" id="sum-total">—</div>
+          </div>
+        </div>
+
+        <!-- Last commit -->
+        <div style="background:var(--item-bg);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:12px;">
+          <div style="font-size:9px;color:var(--text-muted);letter-spacing:0.1em;margin-bottom:6px;font-weight:600;">LAST COMMIT</div>
+          <div style="font-size:10px;color:var(--primary);line-height:1.5;word-break:break-word;" id="sum-commit">—</div>
+          <div style="font-size:9px;color:var(--text-muted);margin-top:4px;" id="sum-scan-date"></div>
+        </div>
+
+        <!-- Audit updated tools -->
+        <div style="background:var(--item-bg);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:12px;">
+          <div style="font-size:9px;color:var(--text-muted);letter-spacing:0.1em;margin-bottom:8px;font-weight:600;">AUDIT — TOOLS UPDATED</div>
+          <div id="sum-audit-list" style="display:flex;flex-direction:column;gap:4px;">
+            <div style="font-size:10px;color:var(--text-muted);">Loading...</div>
+          </div>
+        </div>
+
+        <!-- Recent errors -->
+        <div style="background:var(--item-bg);border:1px solid rgba(239,68,68,0.2);border-radius:6px;padding:10px;">
+          <div style="font-size:9px;color:#ef4444;letter-spacing:0.1em;margin-bottom:8px;font-weight:600;">RECENT ERRORS</div>
+          <div id="sum-errors-list" style="display:flex;flex-direction:column;gap:4px;">
+            <div style="font-size:10px;color:var(--text-muted);">Loading...</div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -436,6 +484,57 @@ function updateState(state) {
   }
 }
 
+// ── Last Scan Summary Panel ────────────────────────────────────────────────
+function updateScanSummary(s) {
+  if (!s) return;
+
+  // Badge
+  const badge = document.getElementById('summary-badge');
+  if (badge) badge.textContent = s.lastScanDate ? s.lastScanDate.split(' ')[0] : 'N/A';
+
+  // Counts
+  const setEl = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  setEl('sum-added',   s.added   != null ? s.added   : '—');
+  setEl('sum-updated', s.updated != null ? s.updated : '—');
+  setEl('sum-total',   s.total   != null ? s.total   : '—');
+
+  // Commit message — strip "chore: " prefix for readability
+  const commitEl = document.getElementById('sum-commit');
+  if (commitEl) commitEl.textContent = s.commitMsg ? s.commitMsg.replace(/^chore:\s*/i, '') : '—';
+  const dateEl = document.getElementById('sum-scan-date');
+  if (dateEl) dateEl.textContent = s.lastScanDate ? `@ ${s.lastScanDate}` : '';
+
+  // Audit updated tools
+  const auditList = document.getElementById('sum-audit-list');
+  if (auditList) {
+    if (s.auditUpdated && s.auditUpdated.length > 0) {
+      auditList.innerHTML = s.auditUpdated.map(name =>
+        `<div style="display:flex;align-items:center;gap:6px;">
+          <span style="width:5px;height:5px;border-radius:50%;background:#3b82f6;flex-shrink:0;"></span>
+          <span style="font-size:10px;color:var(--text-light);">${name}</span>
+        </div>`
+      ).join('');
+    } else {
+      auditList.innerHTML = '<div style="font-size:10px;color:var(--text-muted);">No changes in last audit</div>';
+    }
+  }
+
+  // Recent errors
+  const errList = document.getElementById('sum-errors-list');
+  if (errList) {
+    if (s.recentErrors && s.recentErrors.length > 0) {
+      errList.innerHTML = s.recentErrors.map(e =>
+        `<div style="display:flex;gap:8px;align-items:flex-start;">
+          <span style="font-size:9px;color:var(--text-muted);white-space:nowrap;margin-top:1px;">${e.time ? e.time.slice(0,5) : '--:--'}</span>
+          <span style="font-size:10px;color:#ef4444;line-height:1.4;">${e.msg}</span>
+        </div>`
+      ).join('');
+    } else {
+      errList.innerHTML = '<div style="font-size:10px;color:var(--primary);">✓ No recent errors</div>';
+    }
+  }
+}
+
 // Setup
 fetch('/api/logs').then(r => r.json()).then(d => {
   if (d.logs) {
@@ -443,7 +542,10 @@ fetch('/api/logs').then(r => r.json()).then(d => {
     d.logs.reverse().forEach(appendLog);
   }
 });
-fetch('/api/status').then(r => r.json()).then(updateState);
+fetch('/api/status').then(r => r.json()).then(state => {
+  updateState(state);
+  updateScanSummary(state.lastScanSummary);
+});
 
 socket.on('log', appendLog);
 socket.on('state_update', updateState);

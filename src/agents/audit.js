@@ -35,7 +35,7 @@ function pickToolsForAudit(tools, count = 10) {
 
 async function auditToolData(tools) {
   const today = new Date().toISOString().split('T')[0]
-  const toAudit = pickToolsForAudit(tools, 10)
+  const toAudit = pickToolsForAudit(tools, 20)
 
   if (toAudit.length === 0) {
     logger.info('No tools found to audit')
