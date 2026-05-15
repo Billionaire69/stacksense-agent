@@ -3,7 +3,7 @@ require('dotenv').config()
 const cron = require('node-cron')
 const { runScan } = require('./agents/scanner')
 const logger = require('./utils/logger')
-const { startServer, updateState } = require('./server')
+const { startServer, updateState, refreshStats } = require('./server')
 
 const SCAN_SCHEDULE = process.env.SCAN_SCHEDULE || '0 4,12,20 * * *'
 
@@ -48,6 +48,7 @@ async function main() {
 
     try {
       await runScan()
+      await refreshStats()
     } catch (err) {
       logger.error('Scheduled scan failed', { error: err.message })
     } finally {

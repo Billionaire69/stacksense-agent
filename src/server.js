@@ -138,20 +138,22 @@ logger.logEmitter.on('log', (msg) => {
   io.emit('log', msg)
 })
 
-// Read once on startup
-async function initStats() {
+// Read and refresh stats
+async function refreshStats() {
   try {
     const { tools } = await readToolsFromGitHub()
-    agentState.totalTools = tools.length
-    agentState.kbBreakdown = computeKBBreakdown(tools)
-    logger.info(`Dashboard initialized — ${tools.length} tools`)
+    updateState({
+      totalTools: tools.length,
+      kbBreakdown: computeKBBreakdown(tools)
+    })
+    logger.info(`Dashboard stats refreshed — ${tools.length} tools`)
   } catch (err) {
-    logger.error('Failed to init dashboard stats', { error: err.message })
+    logger.error('Failed to refresh dashboard stats', { error: err.message })
   }
 }
 
 // Call at startup
-initStats()
+refreshStats()
 
 // Endpoint to fetch full state on load
 app.get('/api/status', async (req, res) => {
@@ -197,6 +199,7 @@ app.post('/api/scan', async (req, res) => {
   updateState({ status: 'SCANNING' })
   try {
     await runScan()
+    await refreshStats()
     updateState({ scansCompleted: agentState.scansCompleted + 1 })
   } catch (err) {
     logger.error('Manual scan failed', { error: err.message })
@@ -241,4 +244,4 @@ function startServer(port = process.env.PORT || 3001) {
   })
 }
 
-module.exports = { startServer, updateState }
+module.exports = { startServer, updateState, refreshStats }
